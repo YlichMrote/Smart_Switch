@@ -1,0 +1,1290 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>SmartWitch · BLE 实时数据面板</title>
+<style>
+:root{
+  --bg:#060a13;
+  --text:#e9eefb;
+  --muted:#8ea1c0;
+  --dim:#61809f;
+  --line:rgba(255,255,255,.085);
+  --line-2:rgba(255,255,255,.16);
+  --panel:rgba(255,255,255,.038);
+  --panel-2:rgba(255,255,255,.062);
+  --cyan:#22d3ee; --blue:#3b82f6; --violet:#a78bfa;
+  --green:#34d399; --amber:#fbbf24; --rose:#fb7185;
+  --radius:16px;
+  --font:"Inter","Segoe UI","PingFang SC","Microsoft YaHei",system-ui,-apple-system,sans-serif;
+  --mono:"JetBrains Mono","Cascadia Mono",Consolas,ui-monospace,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  background:var(--bg);color:var(--text);font-family:var(--font);
+  -webkit-font-smoothing:antialiased;line-height:1.5;
+  min-height:100vh;overflow-x:hidden;
+}
+body::before{
+  content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+  background:
+    radial-gradient(900px 520px at 10% -10%, rgba(34,211,238,.14), transparent 62%),
+    radial-gradient(820px 520px at 92% -4%, rgba(139,92,246,.14), transparent 62%),
+    radial-gradient(760px 620px at 50% 116%, rgba(59,130,246,.12), transparent 62%);
+}
+.wrap{position:relative;z-index:1;max-width:1460px;margin:0 auto;padding:0 24px 64px}
+
+/* ---------- 顶栏 ---------- */
+.topbar{
+  position:sticky;top:0;z-index:20;
+  display:flex;align-items:center;gap:20px;flex-wrap:wrap;
+  padding:16px 24px;margin:0 -24px 22px;
+  background:rgba(6,10,19,.72);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);
+  border-bottom:1px solid var(--line);
+}
+.brand{display:flex;align-items:center;gap:13px;margin-right:auto}
+.logo{
+  width:44px;height:44px;border-radius:13px;display:grid;place-items:center;
+  background:linear-gradient(140deg,#22d3ee,#3b82f6 55%,#a78bfa);
+  font-weight:700;font-size:15px;letter-spacing:.5px;color:#04121c;
+  box-shadow:0 6px 22px rgba(34,211,238,.32);
+}
+.brand h1{font-size:17px;font-weight:650;letter-spacing:.2px}
+.brand p{font-size:12px;color:var(--muted);margin-top:1px}
+
+.conn{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.pill{
+  display:inline-flex;align-items:center;gap:8px;
+  padding:8px 14px;border-radius:999px;font-size:13px;font-weight:500;
+  background:var(--panel);border:1px solid var(--line);color:var(--muted);
+}
+.dot{width:8px;height:8px;border-radius:50%;background:#4b5b74;transition:.3s}
+.pill.on{color:#a7f3d0;border-color:rgba(52,211,153,.4);background:rgba(52,211,153,.1)}
+.pill.on .dot{background:var(--green);box-shadow:0 0 0 4px rgba(52,211,153,.16);animation:pulse 2s infinite}
+.pill.demo{color:#fde68a;border-color:rgba(251,191,36,.4);background:rgba(251,191,36,.1)}
+.pill.demo .dot{background:var(--amber);box-shadow:0 0 0 4px rgba(251,191,36,.16)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+
+.btn{
+  font-family:inherit;font-size:13.5px;font-weight:550;cursor:pointer;
+  padding:10px 18px;border-radius:11px;border:1px solid transparent;
+  transition:.18s;display:inline-flex;align-items:center;gap:7px;white-space:nowrap;
+}
+.btn:active{transform:translateY(1px)}
+.btn.primary{background:linear-gradient(135deg,#22d3ee,#3b82f6);color:#03121c;box-shadow:0 6px 20px rgba(59,130,246,.3)}
+.btn.primary:hover{filter:brightness(1.09)}
+.btn.ghost{background:var(--panel);border-color:var(--line-2);color:var(--text)}
+.btn.ghost:hover{background:var(--panel-2)}
+.btn.danger{background:rgba(251,113,133,.13);border-color:rgba(251,113,133,.4);color:#fecdd3}
+.btn.danger:hover{background:rgba(251,113,133,.2)}
+.btn[disabled]{opacity:.42;cursor:not-allowed;filter:grayscale(.4)}
+.btn.sm{padding:8px 13px;font-size:12.5px;border-radius:9px}
+
+/* ---------- 提示条 ---------- */
+.notice{
+  display:none;gap:12px;align-items:flex-start;
+  padding:14px 18px;border-radius:13px;margin-bottom:18px;font-size:13px;
+  background:rgba(251,191,36,.09);border:1px solid rgba(251,191,36,.28);color:#fcd985;
+}
+.notice.show{display:flex}
+.notice b{color:#fde68a}
+.notice code{font-family:var(--mono);font-size:12px;background:rgba(0,0,0,.32);padding:2px 6px;border-radius:5px}
+
+/* ---------- KPI ---------- */
+.kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:13px;margin-bottom:20px}
+.kpi{
+  background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+  padding:15px 16px;position:relative;overflow:hidden;transition:.25s;
+}
+.kpi:hover{border-color:var(--line-2);transform:translateY(-2px)}
+.kpi::after{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--accent,#3b82f6)}
+.kpi .k-label{font-size:11.5px;color:var(--muted);display:flex;align-items:center;gap:6px;letter-spacing:.3px}
+.kpi .k-val{font-size:26px;font-weight:600;letter-spacing:-.4px;margin-top:7px;font-variant-numeric:tabular-nums}
+.kpi .k-val small{font-size:12px;font-weight:500;color:var(--muted);margin-left:3px;letter-spacing:0}
+
+/* ---------- 通用区块 ---------- */
+.sec-head{display:flex;align-items:baseline;gap:12px;margin:26px 0 13px}
+.sec-head h2{font-size:14.5px;font-weight:600;letter-spacing:.3px}
+.sec-head span{font-size:12px;color:var(--dim)}
+
+/* ---------- 界面卡（对应手表 5 屏） ---------- */
+.screens{display:grid;grid-template-columns:repeat(5,1fr);gap:14px}
+.sc{
+  background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+  padding:16px;cursor:pointer;transition:.25s;position:relative;overflow:hidden;
+}
+.sc::before{
+  content:"";position:absolute;inset:0;opacity:0;transition:.3s;
+  background:radial-gradient(120% 90% at 50% 0%, var(--accent-a,rgba(59,130,246,.2)), transparent 70%);
+}
+.sc:hover{border-color:var(--line-2);transform:translateY(-3px)}
+.sc.active{border-color:var(--accent,#3b82f6);box-shadow:0 0 0 1px var(--accent),0 10px 34px -12px var(--accent)}
+.sc.active::before{opacity:1}
+.sc-head{display:flex;align-items:center;gap:9px;margin-bottom:13px;position:relative}
+.sc-ico{width:30px;height:30px;border-radius:9px;display:grid;place-items:center;background:var(--accent-a,rgba(59,130,246,.18));color:var(--accent,#3b82f6);flex:0 0 auto}
+.sc-ico svg{width:16px;height:16px}
+.sc-head h3{font-size:13.5px;font-weight:600;position:relative}
+.sc-id{margin-left:auto;font-size:10.5px;font-family:var(--mono);color:var(--dim);border:1px solid var(--line);padding:2px 6px;border-radius:6px}
+.sc-rows{display:flex;flex-direction:column;gap:9px;position:relative}
+.row{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+.row .lb{font-size:12px;color:var(--muted);white-space:nowrap}
+.row .vl{font-size:15.5px;font-weight:600;font-variant-numeric:tabular-nums;letter-spacing:-.2px}
+.row .vl small{font-size:11px;font-weight:500;color:var(--muted);margin-left:2px}
+.txt{
+  font-size:12px;color:#b9c9e0;background:rgba(255,255,255,.045);border-radius:9px;
+  padding:8px 10px;line-height:1.45;border-left:2px solid var(--accent,#3b82f6);min-height:34px;
+}
+.badge{font-size:10.5px;padding:2px 7px;border-radius:6px;background:rgba(251,191,36,.15);color:#fcd34d;border:1px solid rgba(251,191,36,.3);font-weight:500}
+.badge.ok{background:rgba(52,211,153,.15);color:#6ee7b7;border-color:rgba(52,211,153,.32)}
+.badge.run{background:rgba(59,130,246,.15);color:#93c5fd;border-color:rgba(59,130,246,.32)}
+.badge.bad{background:rgba(148,163,184,.12);color:#cbd5e1;border-color:rgba(148,163,184,.26)}
+/* 血氧信号强度条 */
+.sigbar{display:inline-block;width:80px;height:7px;border-radius:4px;background:rgba(255,255,255,.09);overflow:hidden;vertical-align:middle}
+.sigbar i{display:block;height:100%;width:0;border-radius:4px;background:linear-gradient(90deg,#fb7185,#a78bfa);transition:width .35s ease}
+
+/* 环形仪表 */
+.gauges{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:11px;position:relative}
+.gauge{text-align:center}
+.gauge svg{width:100%;max-width:74px;height:auto;display:block;margin:0 auto}
+.gauge .g-bg{fill:none;stroke:rgba(255,255,255,.09);stroke-width:6}
+.gauge .g-fg{fill:none;stroke-width:6;stroke-linecap:round;transform:rotate(-90deg);transform-origin:50% 50%;transition:stroke-dashoffset .5s ease}
+.gauge b{display:block;font-size:12.5px;font-weight:600;margin-top:3px;font-variant-numeric:tabular-nums}
+.gauge span{font-size:10.5px;color:var(--dim)}
+
+/* ---------- 双栏 ---------- */
+.cols{display:grid;grid-template-columns:1.62fr 1fr;gap:16px;margin-top:6px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:18px}
+.panel + .panel{margin-top:16px}
+.panel h3{font-size:13.5px;font-weight:600;margin-bottom:3px}
+.panel .p-sub{font-size:11.5px;color:var(--dim);margin-bottom:14px}
+
+/* 图表 */
+.chart{margin-bottom:16px}
+.chart:last-child{margin-bottom:0}
+.chart-top{display:flex;align-items:baseline;gap:9px;margin-bottom:7px}
+.chart-top .ct-t{font-size:12.5px;color:var(--muted);font-weight:500}
+.chart-top .ct-v{font-size:16px;font-weight:600;font-variant-numeric:tabular-nums}
+.chart-top .ct-u{font-size:11px;color:var(--dim)}
+.chart-top .lg{margin-left:auto;display:flex;gap:12px;font-size:11px;color:var(--dim)}
+.chart-top .lg i{display:inline-block;width:9px;height:3px;border-radius:2px;margin-right:5px;vertical-align:middle}
+canvas{width:100%;height:112px;display:block}
+
+/* 控制区 */
+.ctrl-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+.ctrl-grid .full{grid-column:1/-1}
+.ctrl-label{font-size:11.5px;color:var(--dim);margin:14px 0 8px;letter-spacing:.3px;text-transform:uppercase}
+
+/* 状态表 */
+.stat{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 0;border-bottom:1px dashed var(--line);font-size:12.5px}
+.stat:last-child{border-bottom:0}
+.stat .s-k{color:var(--muted)}
+.stat .s-v{font-weight:550;font-variant-numeric:tabular-nums;display:flex;align-items:center;gap:7px}
+.mini-dot{width:7px;height:7px;border-radius:50%;background:#4b5b74}
+.mini-dot.ok{background:var(--green)}
+.mini-dot.bad{background:var(--rose)}
+
+/* 按键指示 */
+.keys{display:flex;gap:8px;margin-top:4px}
+.key-ind{
+  flex:1;text-align:center;font-size:11.5px;padding:8px;border-radius:9px;
+  background:rgba(255,255,255,.04);border:1px solid var(--line);color:var(--dim);transition:.15s;
+}
+.key-ind.down{background:rgba(34,211,238,.16);border-color:rgba(34,211,238,.5);color:#a5f3fc}
+
+/* 日志 */
+.log{
+  font-family:var(--mono);font-size:11.5px;line-height:1.75;
+  height:210px;overflow-y:auto;background:rgba(0,0,0,.28);
+  border:1px solid var(--line);border-radius:11px;padding:11px 13px;
+}
+.log div{display:flex;gap:9px;word-break:break-all}
+.log .t{color:#41597a;flex:0 0 auto}
+.log .m{color:#9fb3cd}
+.log.rx .m{color:#67e8f9}
+.log.tx .m{color:#a78bfa}
+.log.ev .m{color:#fcd34d}
+.log.err .m{color:#fb7185}
+.log::-webkit-scrollbar{width:7px}
+.log::-webkit-scrollbar-thumb{background:rgba(255,255,255,.14);border-radius:4px}
+
+/* 事件流 */
+.evts{display:flex;flex-wrap:wrap;gap:7px;min-height:26px}
+.evt{font-size:11.5px;padding:4px 10px;border-radius:8px;background:rgba(251,191,36,.11);border:1px solid rgba(251,191,36,.26);color:#fde68a}
+.evt:first-child{background:rgba(34,211,238,.13);border-color:rgba(34,211,238,.34);color:#a5f3fc}
+
+footer{margin-top:34px;padding-top:20px;border-top:1px solid var(--line);font-size:12px;color:var(--dim);line-height:1.9}
+footer b{color:var(--muted);font-weight:550}
+
+@media (max-width:1240px){
+  .kpis{grid-template-columns:repeat(3,1fr)}
+  .screens{grid-template-columns:repeat(3,1fr)}
+  .cols{grid-template-columns:1fr}
+}
+@media (max-width:760px){
+  .wrap{padding:0 14px 48px}
+  .topbar{padding:14px;margin:0 -14px 18px}
+  .kpis{grid-template-columns:repeat(2,1fr)}
+  .screens{grid-template-columns:1fr}
+  .brand p{display:none}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo">SW</div>
+      <div>
+        <h1>SmartWitch 智能手表</h1>
+        <p>ESP32-S3 · BLE 实时数据面板</p>
+      </div>
+    </div>
+    <div class="conn">
+      <span class="pill" id="pill"><span class="dot"></span><span id="pillText">未连接</span></span>
+      <span class="pill" id="relayPill" style="display:none"></span>
+      <button class="btn primary" id="btnConnect">连接蓝牙</button>
+      <button class="btn ghost" id="btnScanAll" title="搜不到设备时用这个：列出附近全部蓝牙设备">扫描全部设备</button>
+      <button class="btn ghost" id="btnDemo">演示模式</button>
+      <button class="btn danger" id="btnDisconnect" disabled>断开</button>
+    </div>
+  </header>
+
+  <div class="notice" id="notice">
+    <div>
+      <b>当前浏览器不支持 Web Bluetooth。</b><br />
+      请改用电脑版 <b>Chrome</b> 或 <b>Edge</b>（打开 <code>chrome://flags</code> 无需设置，默认开启），
+      或安卓版 Chrome。iPhone / iPad 的 Safari 不支持该接口。<br />
+      也可以先点右上角「演示模式」查看界面效果。
+    </div>
+  </div>
+
+  <!-- KPI -->
+  <section class="kpis">
+    <div class="kpi" style="--accent:#22d3ee">
+      <div class="k-label">环境温度</div>
+      <div class="k-val" id="kTemp">--<small>°C</small></div>
+    </div>
+    <div class="kpi" style="--accent:#3b82f6">
+      <div class="k-label">相对湿度</div>
+      <div class="k-val" id="kHum">--<small>%</small></div>
+    </div>
+    <div class="kpi" style="--accent:#fbbf24">
+      <div class="k-label">光照强度</div>
+      <div class="k-val" id="kLux">--<small>lx</small></div>
+    </div>
+    <div class="kpi" style="--accent:#34d399">
+      <div class="k-label">累计步数</div>
+      <div class="k-val" id="kStep">--<small>步</small></div>
+    </div>
+    <div class="kpi" style="--accent:#fb7185">
+      <div class="k-label">心率</div>
+      <div class="k-val" id="kHr">--<small>bpm</small></div>
+    </div>
+    <div class="kpi" style="--accent:#a78bfa">
+      <div class="k-label">电池电量</div>
+      <div class="k-val" id="kPwr">--<small>%</small></div>
+    </div>
+  </section>
+
+  <!-- 五个界面，点一下即可切换手表屏幕 -->
+  <div class="sec-head">
+    <h2>功能界面</h2>
+    <span>点击任意卡片即可把手表切换到对应界面</span>
+  </div>
+  <section class="screens" id="screens">
+
+    <article class="sc" data-scr="2" style="--accent:#3b82f6;--accent-a:rgba(59,130,246,.18)">
+      <div class="sc-head">
+        <div class="sc-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div>
+        <h3>主页</h3><span class="sc-id">01</span>
+      </div>
+      <div class="gauges">
+        <div class="gauge">
+          <svg viewBox="0 0 80 80"><circle class="g-bg" cx="40" cy="40" r="32"/><circle class="g-fg" id="arcPwr" cx="40" cy="40" r="32" stroke="#3b82f6" stroke-dasharray="201.06" stroke-dashoffset="201.06"/></svg>
+          <b id="gPwr">--</b><span>电量</span>
+        </div>
+        <div class="gauge">
+          <svg viewBox="0 0 80 80"><circle class="g-bg" cx="40" cy="40" r="32"/><circle class="g-fg" id="arcStep" cx="40" cy="40" r="32" stroke="#22d3ee" stroke-dasharray="201.06" stroke-dashoffset="201.06"/></svg>
+          <b id="gStep">--</b><span>步数</span>
+        </div>
+        <div class="gauge">
+          <svg viewBox="0 0 80 80"><circle class="g-bg" cx="40" cy="40" r="32"/><circle class="g-fg" id="arcCal" cx="40" cy="40" r="32" stroke="#a78bfa" stroke-dasharray="201.06" stroke-dashoffset="201.06"/></svg>
+          <b id="gCal">--</b><span>卡路里</span>
+        </div>
+      </div>
+      <div class="sc-rows">
+        <div class="row"><span class="lb">日期</span><span class="vl" id="vDate" style="font-size:12.5px">--</span></div>
+        <div class="row"><span class="lb">时间</span><span class="vl" id="vTime">--:--<small id="vSec"></small></span></div>
+      </div>
+    </article>
+
+    <article class="sc" data-scr="1" style="--accent:#22d3ee;--accent-a:rgba(34,211,238,.18)">
+      <div class="sc-head">
+        <div class="sc-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v18M5 8l7-5 7 5M8 21h8"/></svg></div>
+        <h3>环境</h3><span class="sc-id">02</span>
+      </div>
+      <div class="sc-rows">
+        <div class="row"><span class="lb">温度</span><span class="vl" id="vTemp">--<small>°C</small></span></div>
+        <div class="row"><span class="lb">湿度</span><span class="vl" id="vHum">--<small>%</small></span></div>
+        <div class="row"><span class="lb">气压</span><span class="vl" id="vPres">--<small>hPa</small></span></div>
+        <div class="row"><span class="lb">海拔</span><span class="vl" id="vAlt">--<small>m</small></span></div>
+        <div class="row"><span class="lb">天气</span><span class="vl" id="vWx" style="font-size:13px">--</span></div>
+        <div class="row"><span class="lb">今日</span><span class="vl" id="vWxRange" style="font-size:12.5px">--</span></div>
+        <div class="txt" id="vSug">等待数据…</div>
+      </div>
+    </article>
+
+    <article class="sc" data-scr="3" style="--accent:#fb7185;--accent-a:rgba(251,113,133,.18)">
+      <div class="sc-head">
+        <div class="sc-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 12h4l2-5 3 10 2.5-7 1.5 4h5"/></svg></div>
+        <h3>健康</h3><span class="sc-id">03</span>
+      </div>
+      <div class="sc-rows">
+        <div class="row"><span class="lb">心率</span><span class="vl" id="vHr">--<small>bpm</small></span></div>
+        <div class="row"><span class="lb">血氧</span><span class="vl" id="vSpo2">--<small>%</small></span></div>
+        <div class="row"><span class="lb">状态</span><span class="vl"><span class="badge" id="vHdTag">等待数据</span></span></div>
+        <div class="row"><span class="lb">信号强度</span><span class="vl"><span class="sigbar"><i id="vHdSig"></i></span></span></div>
+        <div class="row"><span class="lb">IR 电平</span><span class="vl" id="vHdIr">--<small>基线 --</small></span></div>
+        <div class="row"><span class="lb">DC / AC</span><span class="vl" id="vHdDcAc">--</span></div>
+        <div class="txt" id="vHdTip" style="--accent:#fb7185">把手指轻放在手表背面的 MAX30105 上，保持不动约 5 秒。</div>
+      </div>
+    </article>
+
+    <article class="sc" data-scr="4" style="--accent:#34d399;--accent-a:rgba(52,211,153,.18)">
+      <div class="sc-head">
+        <div class="sc-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M13 3l-2 7h5l-2 8-1 3"/><path d="M6 21h12"/></svg></div>
+        <h3>运动</h3><span class="sc-id">04</span>
+      </div>
+      <div class="sc-rows">
+        <div class="row"><span class="lb">步数</span><span class="vl" id="vStep2">--<small>步</small></span></div>
+        <div class="row"><span class="lb">距离</span><span class="vl" id="vDist">--<small>km</small></span></div>
+        <div class="row"><span class="lb">配速</span><span class="vl" id="vPace">--<small>min/km</small></span></div>
+        <div class="row"><span class="lb">时长</span><span class="vl" id="vSportT">--<small>min</small></span></div>
+        <div class="row"><span class="lb">卡路里</span><span class="vl" id="vCal">--<small>kcal</small></span></div>
+        <div class="txt" style="--accent:#34d399">MPU6050 计步：卡尔曼滤波 + 动态阈值峰值检测，20 ms 采样。</div>
+      </div>
+    </article>
+
+    <article class="sc" data-scr="5" style="--accent:#fbbf24;--accent-a:rgba(251,191,36,.18)">
+      <div class="sc-head">
+        <div class="sc-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1"/></svg></div>
+        <h3>光照</h3><span class="sc-id">05</span>
+      </div>
+      <div class="sc-rows">
+        <div class="row"><span class="lb">光强</span><span class="vl" id="vLux">--<small>lx</small></span></div>
+        <div class="row"><span class="lb">档位</span><span class="vl" id="vMtreg" style="font-size:12.5px">--</span></div>
+        <div class="txt" id="vLightTxt" style="--accent:#fbbf24">等待数据…</div>
+        <div>
+          <div style="height:7px;border-radius:4px;background:rgba(255,255,255,.08);overflow:hidden;margin-top:2px">
+            <div id="luxBar" style="height:100%;width:0%;border-radius:4px;background:linear-gradient(90deg,#fbbf24,#fb7185);transition:width .5s"></div>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:10.5px;color:var(--dim);margin-top:5px">
+            <span>0</span><span>300</span><span>10k</span><span>40k+</span>
+          </div>
+        </div>
+      </div>
+    </article>
+
+  </section>
+
+  <!-- 图表 + 控制 -->
+  <div class="cols">
+    <div>
+      <div class="panel">
+        <h3>实时曲线</h3>
+        <div class="p-sub">每 500 ms 一帧，滚动保留最近 120 个采样点</div>
+
+        <div class="chart">
+          <div class="chart-top">
+            <span class="ct-t">温度 / 湿度</span>
+            <span class="ct-v" id="cTempV">--</span><span class="ct-u">°C</span>
+            <span class="ct-v" id="cHumV" style="color:#3b82f6">--</span><span class="ct-u">%RH</span>
+            <span class="lg"><span><i style="background:#22d3ee"></i>温度</span><span><i style="background:#3b82f6"></i>湿度</span></span>
+          </div>
+          <canvas id="chTemp"></canvas>
+        </div>
+
+        <div class="chart">
+          <div class="chart-top">
+            <span class="ct-t">光照强度</span>
+            <span class="ct-v" id="cLuxV" style="color:#fbbf24">--</span><span class="ct-u">lx</span>
+          </div>
+          <canvas id="chLux"></canvas>
+        </div>
+
+        <div class="chart">
+          <div class="chart-top">
+            <span class="ct-t">累计步数</span>
+            <span class="ct-v" id="cStepV" style="color:#34d399">--</span><span class="ct-u">步</span>
+          </div>
+          <canvas id="chStep"></canvas>
+        </div>
+
+        <div class="chart">
+          <div class="chart-top">
+            <span class="ct-t">心率 / 血氧</span>
+            <span class="ct-v" id="cHrV" style="color:#fb7185">--</span><span class="ct-u">bpm</span>
+            <span class="ct-v" id="cSpo2V" style="color:#a78bfa">--</span><span class="ct-u">%</span>
+            <span class="lg"><span><i style="background:#fb7185"></i>心率</span><span><i style="background:#a78bfa"></i>血氧</span></span>
+          </div>
+          <canvas id="chHealth"></canvas>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h3>BLE 通信日志</h3>
+        <div class="p-sub">记录每一帧数据与每一条下发指令</div>
+        <div class="log" id="log"></div>
+        <div style="display:flex;gap:9px;margin-top:12px;flex-wrap:wrap">
+          <button class="btn ghost sm" id="btnClearLog">清空日志</button>
+          <button class="btn ghost sm" id="btnExport">导出 CSV</button>
+          <button class="btn ghost sm" id="btnSync">立即同步</button>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="panel">
+        <h3>远程控制</h3>
+        <div class="p-sub">下发指令到手表，等效于手势操作</div>
+
+        <div class="ctrl-label">界面切换</div>
+        <div class="ctrl-grid" id="scrBtns">
+          <button class="btn ghost sm" data-scr="1">环境</button>
+          <button class="btn ghost sm" data-scr="2">主页</button>
+          <button class="btn ghost sm" data-scr="3">健康</button>
+          <button class="btn ghost sm" data-scr="4">运动</button>
+          <button class="btn ghost sm" data-scr="5">光照</button>
+          <button class="btn ghost sm" id="btnNext">下一屏 →</button>
+        </div>
+
+        <div class="ctrl-label">模拟按键</div>
+        <div class="ctrl-grid">
+          <button class="btn ghost sm" id="btnKeyL">← 左键 (GPIO41)</button>
+          <button class="btn ghost sm" id="btnKeyR">右键 (GPIO42) →</button>
+        </div>
+        <div class="keys">
+          <div class="key-ind" id="keyL">左键 松开</div>
+          <div class="key-ind" id="keyR">右键 松开</div>
+        </div>
+
+        <div class="ctrl-label">语音播报</div>
+        <div class="ctrl-grid">
+          <button class="btn ghost sm" id="btnHaode">播放「好的」</button>
+          <button class="btn ghost sm" id="btnWozai">播放「我在」</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h3>语音交互</h3>
+        <div class="p-sub">INMP441 采集 → 百度语音识别 → 关键词切屏</div>
+        <div class="stat"><span class="s-k">设备状态</span><span class="s-v"><span class="mini-dot" id="vDot"></span><span id="vVoice">待唤醒</span></span></div>
+        <div class="stat"><span class="s-k">唤醒词</span><span class="s-v" style="font-family:var(--mono)">小度</span></div>
+        <div class="stat" style="display:block">
+          <div class="s-k" style="margin-bottom:6px">最近识别文本</div>
+          <div class="txt" id="vHeard" style="--accent:#a78bfa">—</div>
+        </div>
+        <div class="stat" style="display:block">
+          <div class="s-k" style="margin-bottom:6px">最近命中指令</div>
+          <div class="txt" id="vCmd" style="--accent:#22d3ee">—</div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h3>设备状态</h3>
+        <div class="p-sub">运行时与网络状态</div>
+        <div class="stat"><span class="s-k">当前界面</span><span class="s-v" id="sScr">--</span></div>
+        <div class="stat"><span class="s-k">运行时长</span><span class="s-v" id="sUp">--</span></div>
+        <div class="stat"><span class="s-k">WiFi</span><span class="s-v"><span class="mini-dot" id="sWifiDot"></span><span id="sWifi">--</span></span></div>
+        <div class="stat"><span class="s-k">WiFi 信号</span><span class="s-v" id="sRssi">--</span></div>
+        <div class="stat"><span class="s-k">BLE 首选 MTU</span><span class="s-v" id="sMtu">--</span></div>
+        <div class="stat"><span class="s-k">任务栈余量</span><span class="s-v" id="sStk">--</span></div>
+        <div class="stat"><span class="s-k">任务周期抖动</span><span class="s-v" id="sJit">--</span></div>
+        <div class="stat"><span class="s-k">数据帧计数</span><span class="s-v" id="sFrames">0</span></div>
+        <div class="stat" style="display:block">
+          <div class="s-k" style="margin-bottom:7px">设备事件流</div>
+          <div class="evts" id="evts"><span style="color:var(--dim);font-size:11.5px">暂无事件</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    <b>使用说明</b>　① 用电脑版 Chrome / Edge 打开本页面；② 点击「连接蓝牙」，在弹窗中选择 <b>SmartWitch</b>；③ 连接成功后静默建立数据通道（手表不再语音播报），数据每 0.5 秒自动刷新。<br />
+    若浏览器提示「不是安全上下文」，可在本文件所在目录执行 <code style="font-family:var(--mono)">python -m http.server 8000</code>，再访问 <code style="font-family:var(--mono)">http://localhost:8000/SmartWitch_BLE_Dashboard.html</code>。<br />
+    <b>多人 / 手机查看</b>　双击 <code style="font-family:var(--mono)">relay/start-relay.bat</code> 起中转服务；本机用 <code style="font-family:var(--mono)">http://localhost:8099</code> 当主机连蓝牙，其他人用 <code style="font-family:var(--mono)">http://&lt;本机IP&gt;:8099</code> 打开即可同步查看（iPhone 亦可，人数不限）。<br />
+    <b>BLE 协议</b>　Service <code style="font-family:var(--mono)">6E400001</code> · 数据通知 <code style="font-family:var(--mono)">6E400003</code> · 指令写入 <code style="font-family:var(--mono)">6E400002</code>（Nordic UART 兼容）<br />
+    <b>指令格式</b>　<code style="font-family:var(--mono)">screen:1</code> · <code style="font-family:var(--mono)">key:left</code> · <code style="font-family:var(--mono)">key:right</code> · <code style="font-family:var(--mono)">audio:haode</code> · <code style="font-family:var(--mono)">audio:wozai</code> · <code style="font-family:var(--mono)">sync</code>
+  </footer>
+</div>
+
+<script>
+/* ======================= 常量 ======================= */
+const SVC    = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
+const CH_TX  = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';  // notify
+const CH_RX  = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';  // write
+const SCR_NAME = {1:'环境', 2:'主页', 3:'健康', 4:'运动', 5:'光照'};
+const VOICE_NAME = {0:'待唤醒', 1:'已唤醒', 2:'识别中'};
+const CIRC = 2 * Math.PI * 32;
+
+/* ======================= 状态 ======================= */
+let device = null, gattServer = null, txChar = null, rxChar = null;
+let decoder = new TextDecoder('utf-8');
+let sBuffer = '';
+let demoMode = false, demoTimer = null;
+let lastFrame = null, frameCount = 0;
+const history = [];          // 用于导出 CSV
+let lastRenderAt = 0;
+
+const $ = (id) => document.getElementById(id);
+
+/* ======================= 工具 ======================= */
+const num = (v, d = 0) => (v === null || v === undefined || isNaN(v)) ? '--' : Number(v).toFixed(d);
+
+function setVal(id, text, unit) {
+  const el = $(id); if (!el) return;
+  el.innerHTML = text + (unit ? `<small>${unit}</small>` : '');
+}
+function setPlain(id, text) { const el = $(id); if (el) el.textContent = text; }
+
+function fmtClock(t) {
+  if (!t) return '--:--';
+  const p = String(t).split(/[\s:：]+/).filter(Boolean);
+  return p.length >= 2 ? p[0].padStart(2, '0') + ':' + p[1].padStart(2, '0') : String(t);
+}
+function fmtUp(s) {
+  s = Number(s) || 0;
+  const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), ss = s % 60;
+  return h > 0 ? `${h} 时 ${m} 分` : (m > 0 ? `${m} 分 ${ss} 秒` : `${ss} 秒`);
+}
+function log(msg, kind = '') {
+  const box = $('log');
+  const d = document.createElement('div');
+  d.className = kind;
+  const t = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+  d.innerHTML = `<span class="t">${t}</span><span class="m"></span>`;
+  d.querySelector('.m').textContent = msg;
+  box.appendChild(d);
+  while (box.children.length > 260) box.removeChild(box.firstChild);
+  box.scrollTop = box.scrollHeight;
+  if (!box.dataset.init) { box.dataset.init = 1; }
+}
+
+/* ======================= 局域网中转 =======================
+ * 由 relay/server.js 提供：它既托管本页面，也充当 WebSocket 中转。
+ *   · 主机（有 Web Bluetooth，通常是电脑）：连一次手表 → 把每帧 JSON 转发给服务器
+ *   · 跟随端（手机 / iPad 等）：只收数据；页面上点的指令经服务器转交主机执行
+ * 用 file:// 直接打开时本模块自动失效，行为与以前完全一致。
+ * ========================================================= */
+const RELAY = { on: false, ws: null, role: 'local', hostName: '', viewers: 0 };
+let relaySettled = false;
+
+function relaySend(obj) {
+  if (!RELAY.on || !RELAY.ws || RELAY.ws.readyState !== 1) return false;
+  RELAY.ws.send(JSON.stringify(obj));
+  return true;
+}
+function relayStatus(s) {
+  if (RELAY.role === 'host') relaySend({ t: 'status', s });
+}
+function relayBadge(text) {
+  const el = $('relayPill');
+  if (!el) return;
+  if (!text) { el.style.display = 'none'; return; }
+  el.style.display = '';
+  el.className = 'pill on';
+  el.innerHTML = '<span class="dot"></span><span></span>';
+  el.lastChild.textContent = text;
+}
+
+function relayConnect() {
+  let ws;
+  try {
+    ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
+  } catch (e) { return; }
+  RELAY.ws = ws;
+
+  ws.onopen = () => {
+    RELAY.on = true;
+    relaySend({
+      t: 'hello',
+      canHost: !!navigator.bluetooth,
+      name: (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || ''
+    });
+    log('已接入局域网中转：' + location.host, 'ev');
+  };
+
+  ws.onmessage = (ev) => {
+    let m;
+    try { m = JSON.parse(ev.data); } catch (e) { return; }
+
+    if (m.t === 'info') {
+      log('共享给别人的地址：' + (m.urls || []).join('　'), 'ev');
+    } else if (m.t === 'roles') {
+      RELAY.role     = m.role;
+      RELAY.hostName = m.host || '';
+      RELAY.viewers  = m.viewers || 0;
+      applyRelayUI();
+    } else if (m.t === 'frame') {
+      if (RELAY.role !== 'host' && m.d) render(m.d);
+    } else if (m.t === 'status') {
+      log('主机：' + m.s, 'ev');
+    } else if (m.t === 'cmd') {
+      if (RELAY.role === 'host') send(m.c, true);   // 跟随端点的按钮，由主机下发给手表
+    }
+  };
+
+  ws.onclose = () => {
+    RELAY.on = false;
+    relayBadge('');
+    log('中转服务已断开，1.5 秒后自动重连…', 'err');
+    setTimeout(relayConnect, 1500);
+  };
+  ws.onerror = () => { /* 交给 onclose 处理 */ };
+}
+
+function applyRelayUI() {
+  if (RELAY.role === 'host') {
+    relayBadge('中转主机 · 在线 ' + RELAY.viewers + ' 人');
+    if (!relaySettled) {
+      relaySettled = true;
+      log('本机是中转主机：连上手表后，所有跟随端都会同步看到数据', 'ev');
+    }
+    return;
+  }
+
+  relayBadge('跟随 ' + (RELAY.hostName || '主机'));
+  setPill('demo', '跟随主机');
+  if (relaySettled) return;
+  relaySettled = true;
+
+  // 跟随端不需要蓝牙，把只有主机才有意义的按钮收起来
+  ['btnConnect', 'btnScanAll', 'btnDemo', 'btnDisconnect'].forEach((id) => {
+    const el = $(id);
+    if (el) { el.disabled = true; el.style.display = 'none'; }
+  });
+
+  const n = $('notice');
+  if (n) {
+    n.classList.add('show');
+    const box = n.firstElementChild;
+    if (box) {
+      box.innerHTML =
+        '<b>当前为跟随模式（多人查看）。</b><br />' +
+        '本机不需要蓝牙：数据由主机（' + (RELAY.hostName || '电脑') +
+        '）经局域网转发过来，iPhone 也能这样看。<br />' +
+        '页面上的切屏 / 按键 / 语音按钮仍然可用 —— 指令会交给主机下发给手表。';
+    }
+  }
+  log('跟随模式：数据来自主机 ' + (RELAY.hostName || '电脑'), 'ev');
+}
+
+/* ======================= 连接 ======================= */
+// scanAll = true 时不按名字过滤，列出附近所有 BLE 设备，用于排查“搜不到设备”
+async function connect(scanAll) {
+  if (!navigator.bluetooth) { $('notice').classList.add('show'); return; }
+  try {
+    setPill('searching', scanAll ? '扫描全部设备…' : '搜索中…');
+    const opts = scanAll
+      ? { acceptAllDevices: true, optionalServices: [SVC] }
+      : {
+          // 两个过滤条件是「或」关系：按名字命中，或按服务 UUID 命中，
+          // 设备广播里带了其中任意一个就能出现在列表里。
+          filters: [{ namePrefix: 'SmartWitch' }, { services: [SVC] }],
+          optionalServices: [SVC]
+        };
+    device = await navigator.bluetooth.requestDevice(opts);
+    device.addEventListener('gattserverdisconnected', onGattDisconnected);
+    await openGatt();
+  } catch (e) {
+    setPill('off', '未连接');
+    if (e.name === 'NotFoundError') {
+      log('没有选择设备。若列表是空的：① 确认固件已烧录且板子已上电（串口应打印「广播状态: 正在广播 OK」）；' +
+          '② 板子离电脑近一些；③ 点「扫描全部设备」手动查找。', 'err');
+    } else {
+      log('连接失败：' + e.message, 'err');
+    }
+  }
+}
+
+async function openGatt() {
+  gattServer = await device.gatt.connect();
+  const service = await gattServer.getPrimaryService(SVC);
+  txChar = await service.getCharacteristic(CH_TX);
+  rxChar = await service.getCharacteristic(CH_RX);
+
+  decoder = new TextDecoder('utf-8');
+  sBuffer = '';
+
+  await txChar.startNotifications();
+  txChar.addEventListener('characteristicvaluechanged', onNotify);
+
+  setPill('on', device.name || 'SmartWitch');
+  $('btnConnect').disabled = true;
+  $('btnDisconnect').disabled = false;
+  log(`已连接 ${device.name || 'SmartWitch'}`, 'ev');
+  relayStatus('已连接手表 ' + (device.name || 'SmartWitch'));
+  send('sync');
+}
+
+function onGattDisconnected() {
+  relayStatus('手表已断开，正在自动重连');
+  setPill('off', '已断开');
+  $('btnConnect').disabled = false;
+  $('btnDisconnect').disabled = true;
+  txChar = rxChar = null;
+  log('连接已断开', 'err');
+  if (!demoMode) setTimeout(() => { if (device && !demoMode) connect().catch(() => {}); }, 1200);
+}
+
+function setPill(state, text) {
+  const p = $('pill');
+  p.className = 'pill' + (state === 'on' ? ' on' : state === 'demo' ? ' demo' : '');
+  $('pillText').textContent = text;
+}
+
+/* ======================= 收数据 ======================= */
+function onNotify(e) {
+  const dv = e.target.value;
+  const bytes = new Uint8Array(dv.buffer, dv.byteOffset, dv.byteLength);
+  sBuffer += decoder.decode(bytes, { stream: true });
+
+  if (sBuffer.length > 24000) { sBuffer = ''; log('缓冲区溢出，已重置', 'err'); return; }
+
+  const s = sBuffer.trim();
+  if (s.length < 2 || s[0] !== '{' || s[s.length - 1] !== '}') return;
+
+  let data;
+  try { data = JSON.parse(s); } catch (err) { return; }
+
+  sBuffer = '';
+  decoder = new TextDecoder('utf-8');
+  render(data);
+}
+
+async function send(cmd, fromRelay) {
+  // 跟随端本机没有蓝牙连接，把指令转交主机执行
+  if (!fromRelay && RELAY.role === 'viewer' && RELAY.on) {
+    if (relaySend({ t: 'cmd', c: cmd })) { log('→ 转交主机：' + cmd, 'tx'); return true; }
+  }
+  if (!rxChar) { log('未连接，指令未发送：' + cmd, 'err'); return false; }
+  try {
+    const enc = new TextEncoder().encode(cmd);
+    if (rxChar.properties && rxChar.properties.write) {
+      await rxChar.writeValueWithResponse(enc);
+    } else {
+      await rxChar.writeValueWithoutResponse(enc);
+    }
+    log('→ ' + cmd, 'tx');
+    return true;
+  } catch (e) {
+    log('发送失败：' + e.message, 'err');
+    return false;
+  }
+}
+
+/* ======================= 渲染 ======================= */
+function render(d) {
+  lastFrame = d;
+  frameCount++;
+  $('sFrames').textContent = frameCount;
+
+  // 主机：把每帧原样转发给中转服务，供其它设备同步查看
+  if (RELAY.role === 'host') relaySend({ t: 'frame', d });
+
+  const env = d.env || {}, wx = d.wx || {}, main = d.main || {},
+        hd = d.hd || {}, sp = d.sp || {}, sys = d.sys || {};
+
+  /* ---- KPI ---- */
+  setVal('kTemp', num(env.t, 1), '°C');
+  setVal('kHum', num(env.h, 1), '%');
+  setVal('kLux', num(env.lux, 0), 'lx');
+  setVal('kStep', main.step ?? sp.step ?? '--', '步');
+  setVal('kHr', (hd.st >= 2 && hd.hr) ? hd.hr : '--', 'bpm');
+  setVal('kPwr', main.pwr ?? '--', '%');
+
+  /* ---- 主页 ---- */
+  setArc('arcPwr', main.pwr, 100);
+  setArc('arcStep', main.step, 6000);
+  setArc('arcCal', main.cal, 300);
+  setPlain('gPwr', (main.pwr ?? '--') + '%');
+  setPlain('gStep', main.step ?? '--');
+  setPlain('gCal', (main.cal ?? '--') + ' kcal');
+  setPlain('vDate', main.date || '--');
+  $('vTime').innerHTML = fmtClock(main.time) + `<small id="vSec">${main.sec ? ':' + String(main.sec).padStart(2, '0') : ''}</small>`;
+
+  /* ---- 环境 ---- */
+  setVal('vTemp', num(env.t, 1), '°C');
+  setVal('vHum', num(env.h, 1), '%');
+  setVal('vPres', num(env.p, 2), 'hPa');
+  setVal('vAlt', num(env.alt, 1), 'm');
+  setPlain('vWx', wx.text || '--');
+  setPlain('vWxRange', (wx.min ?? '--') + '°C ~ ' + (wx.max ?? '--') + '°C');
+  setPlain('vSug', wx.sug || '暂无出行建议');
+
+  /* ---- 健康 ---- */
+  renderHealth(hd);
+
+  /* ---- 运动 ---- */
+  setVal('vStep2', main.step ?? sp.step ?? '--', '步');
+  setVal('vDist', num(sp.dist, 2), 'km');
+  setVal('vPace', num(sp.pace, 2), 'min/km');
+  setVal('vSportT', num(sp.t, 0), 'min');
+  setVal('vCal', sp.cal ?? '--', 'kcal');
+
+  /* ---- 光照 ---- */
+  const lux = Number(env.lux) || 0;
+  setVal('vLux', num(env.lux, 1), 'lx');
+  setPlain('vLightTxt', env.light || '等待数据…');
+  // 固件改为 BH1750 连续高分辨率模式（固定 MTreg = 69）
+  setPlain('vMtreg', '连续测量 · 量程 0~54612 lx');
+  const barPct = Math.min(100, Math.log10(Math.max(lux, 1)) / Math.log10(40000) * 100);
+  $('luxBar').style.width = barPct.toFixed(1) + '%';
+
+  /* ---- 语音 ---- */
+  const vs = sys.voice ?? 0;
+  setPlain('vVoice', VOICE_NAME[vs] || '未知');
+  $('vDot').className = 'mini-dot ' + (vs === 0 ? '' : 'ok');
+  setPlain('vHeard', sys.heard || '—');
+  setPlain('vCmd', sys.cmd || '—');
+
+  /* ---- 设备状态 ---- */
+  setPlain('sScr', `${SCR_NAME[sys.scr] || '?'}（ID ${sys.scr ?? '-'}）`);
+  setPlain('sUp', fmtUp(sys.up));
+  setPlain('sWifi', sys.wifi ? '已连接' : '未连接');
+  $('sWifiDot').className = 'mini-dot ' + (sys.wifi ? 'ok' : 'bad');
+  setPlain('sRssi', (sys.rssi ?? '--') + ' dBm');
+  {
+    // 分块大小 = min(协商 MTU − 3, 500)，固件按同一规则切包
+    const mtu = Number(sys.mtu) || 23;
+    const chunk = Math.min(500, Math.max(20, mtu - 3));
+    setPlain('sMtu', mtu + ' B · 分块 ' + chunk + ' B');
+  }
+  setPlain('sStk', (sys.stkmin ? sys.stkmin + ' B（全任务最小）' : '--'));
+  setPlain('sJit', (sys.jit != null ? sys.jit + ' ms（最大周期超时）' : '--'));
+
+  /* ---- 按键 ---- */
+  const km = sys.key ?? 0;
+  $('keyL').className = 'key-ind' + (km & 1 ? ' down' : '');
+  $('keyR').className = 'key-ind' + (km & 2 ? ' down' : '');
+  $('keyL').textContent = '左键 ' + (km & 1 ? '按下' : '松开');
+  $('keyR').textContent = '右键 ' + (km & 2 ? '按下' : '松开');
+
+  /* ---- 高亮当前界面卡 ---- */
+  highlightScreen(sys.scr);
+
+  /* ---- 事件流 ---- */
+  if (d.evt) handleEvents(d.evt);
+
+  /* ---- 曲线 ---- */
+  chartTemp.push(Number(env.t), Number(env.h));
+  chartLux.push(Number(env.lux));
+  chartStep.push(Number(main.step));
+  setPlain('cTempV', num(env.t, 1));
+  setPlain('cHumV', num(env.h, 1));
+  setPlain('cLuxV', num(env.lux, 1));
+  setPlain('cStepV', main.step ?? '--');
+
+  // 心率/血氧曲线：只在读到有效值时推进，避免无效点把折线拉断
+  const hdLive = hd.st >= 2 && hd.hr > 0 && hd.spo2 > 0;
+  if (hdLive) chartHealth.push(Number(hd.hr), Number(hd.spo2));
+  setPlain('cHrV', hdLive ? hd.hr : '--');
+  setPlain('cSpo2V', hdLive ? hd.spo2 : '--');
+
+  /* ---- CSV 历史 ---- */
+  const now = Date.now();
+  if (now - lastRenderAt >= 900) {
+    lastRenderAt = now;
+    history.push([new Date(now).toLocaleString('zh-CN', { hour12: false }),
+      env.t, env.h, env.p, env.alt, env.lux, main.step, sp.dist, hd.hr, hd.spo2, main.pwr, sys.scr]);
+    if (history.length > 3000) history.shift();
+  }
+
+  /* ---- 日志（限流）---- */
+  if (frameCount === 1 || frameCount % 20 === 0) {
+    log(`← 第 ${frameCount} 帧  T=${num(env.t, 1)}°C H=${num(env.h, 1)}% Lux=${num(env.lux, 0)} 步=${main.step ?? '-'}`, 'rx');
+  }
+}
+
+/* 健康模块：按固件上报的运行状态渲染（0=传感器未就绪 1=无手指 2=测量中 3=正常） */
+const HD_ST = {
+  0: { t: '传感器未就绪', c: 'bad'  },
+  1: { t: '未检测到手指', c: 'warn' },
+  2: { t: '测量中…',      c: 'run'  },
+  3: { t: '读数正常',     c: 'ok'   }
+};
+const HD_TIP = {
+  0: '没有检测到 MAX30105 —— 检查传感器接线与供电。',
+  1: '把手指轻放在手表背面的 MAX30105 上，保持不动约 5 秒。',
+  2: '正在采集 PPG 波形（4 秒窗口），请保持手指不动…',
+  3: '读数已稳定。手指移动、按压过轻或强环境光都会影响精度。'
+};
+function renderHealth(hd) {
+  const st = Number(hd.st ?? 0);
+  const info = HD_ST[st] || HD_ST[0];
+
+  const tag = $('vHdTag');
+  if (tag) { tag.textContent = info.t; tag.className = 'badge ' + info.c; }
+
+  // 只有"测量中 / 正常"状态下的读数才有意义
+  const live = st >= 2;
+  setVal('vHr',   live && hd.hr   ? hd.hr   : '--', 'bpm');
+  setVal('vSpo2', live && hd.spo2 ? hd.spo2 : '--', '%');
+
+  // 信号强度条：优先用固件上报的 DC（手指贴合度）+ AC（脉动幅度）综合评估，
+  // 单点 IR 抖动太大，只在旧固件没给这两个字段时才退回使用。
+  const dc = Number(hd.dc) || 0;
+  const ac = Number(hd.ac) || 0;
+  const base = Number(hd.irb) || 0;
+  const ent  = Number(hd.ire) || 0;
+  let pct;
+  if (dc > 0) {
+    // 贴合度以「实测直流 / 进入门限」衡量，门限随基线浮动，比写死的绝对量程准确
+    const fit = ent > 0 ? Math.max(0, Math.min(1, (dc - ent) / (ent * 3))) : 0;
+    const pul = Math.max(0, Math.min(1, ac / 1500));            // 脉动峰峰 1500 即满分
+    pct = fit * 0.5 + pul * 0.5;
+  } else {
+    const ir = Number(hd.ir) || 0;
+    pct = Math.max(0, Math.min(1, (ir - 20000) / 80000));
+  }
+  const bar = $('vHdSig');
+  if (bar) bar.style.width = (pct * 100).toFixed(1) + '%';
+
+  // IR 原始电平 + 自适应基线：现场一眼看出手指判定是否正常
+  //（有手指时 IR 应远高于基线；没手指时应贴着基线）
+  setPlain('vHdIr', hd.ir != null ? (hd.ir + ' / 基线 ' + (base || '--')) : '--');
+
+  // DC（窗口直流均值）/ AC（窗口峰峰值）：判断「手指判定正常但读数出不来」的关键
+  // AC 太小说明脉动没进到窗口，常见原因是 LED 电流过大导致饱和、或手指压得太轻
+  if (hd.dc != null || hd.ac != null) {
+    const pctAc = dc > 0 ? (100 * ac / dc).toFixed(2) + '%' : '--';
+    setPlain('vHdDcAc', (dc || 0) + ' / ' + (ac || 0) + '  (AC 占 DC ' + pctAc + ')');
+  } else {
+    setPlain('vHdDcAc', '--');
+  }
+
+  const tip = $('vHdTip');
+  if (tip) tip.textContent = HD_TIP[st] || HD_TIP[0];
+}
+
+function setArc(id, val, max) {
+  const el = $(id); if (!el) return;
+  const pct = Math.max(0, Math.min(1, (Number(val) || 0) / max));
+  el.style.strokeDashoffset = (CIRC * (1 - pct)).toFixed(2);
+}
+
+let activeScr = null;
+function highlightScreen(id) {
+  if (id === activeScr) return;
+  activeScr = id;
+  document.querySelectorAll('.sc').forEach(el => {
+    el.classList.toggle('active', Number(el.dataset.scr) === Number(id));
+  });
+}
+
+const evtLabels = { 'key:L': '左键按下', 'key:R': '右键按下', 'voice:1': '语音已唤醒', 'voice:2': '语音识别中', 'voice:0': '回到待唤醒' };
+function handleEvents(raw) {
+  const parts = String(raw).split('|').filter(Boolean);
+  if (!parts.length) return;
+  const box = $('evts');
+  if (box.dataset.clean !== '1') { box.innerHTML = ''; box.dataset.clean = '1'; }
+  parts.forEach(p => {
+    let label;
+    if (p.startsWith('screen:')) label = '切屏 → ' + (SCR_NAME[Number(p.slice(7))] || p.slice(7));
+    else if (p.startsWith('rx:')) label = '指令 ' + p.slice(3);
+    else label = evtLabels[p] || p;
+
+    const el = document.createElement('span');
+    el.className = 'evt';
+    el.textContent = label;
+    box.prepend(el);
+    while (box.children.length > 12) box.removeChild(box.lastChild);
+    log('◆ ' + label, 'ev');
+  });
+}
+
+/* ======================= 曲线 ======================= */
+function makeChart(canvas, series) {
+  const MAX = 120;
+  const data = series.map(() => []);
+
+  function draw() {
+    const dpr = window.devicePixelRatio || 1;
+    const w = canvas.clientWidth, h = canvas.clientHeight;
+    if (!w || !h) return;
+    if (canvas.width !== w * dpr || canvas.height !== h * dpr) {
+      canvas.width = w * dpr; canvas.height = h * dpr;
+    }
+    const g = canvas.getContext('2d');
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, w, h);
+
+    const PL = 44, PR = 10, PT = 12, PB = 18;
+    const iw = w - PL - PR, ih = h - PT - PB;
+
+    const all = data.flat().filter(v => v !== null && !isNaN(v));
+    if (!all.length) {
+      g.fillStyle = 'rgba(255,255,255,.18)';
+      g.font = '12px ' + getComputedStyle(document.body).fontFamily;
+      g.textAlign = 'center';
+      g.fillText('等待数据…', w / 2, h / 2 + 4);
+      return;
+    }
+
+    let lo = Math.min(...all), hi = Math.max(...all);
+    if (hi - lo < 1e-6) { hi += 1; lo -= 1; }
+    const pad = (hi - lo) * 0.16;
+    lo -= pad; hi += pad;
+
+    // 网格
+    g.strokeStyle = 'rgba(255,255,255,.07)';
+    g.lineWidth = 1;
+    g.font = '10px ' + getComputedStyle(document.body).fontFamily;
+    g.fillStyle = 'rgba(255,255,255,.32)';
+    g.textAlign = 'right';
+    g.textBaseline = 'middle';
+    for (let i = 0; i <= 3; i++) {
+      const y = PT + ih * i / 3;
+      g.beginPath(); g.moveTo(PL, y); g.lineTo(PL + iw, y); g.stroke();
+      g.fillText((hi - (hi - lo) * i / 3).toFixed(1), PL - 7, y);
+    }
+
+    // 每条曲线
+    series.forEach((cfg, si) => {
+      const arr = data[si];
+      if (arr.length < 2) return;
+      const n = arr.length;
+      const px = (i) => PL + (n === 1 ? iw / 2 : iw * i / (MAX - 1));
+      const py = (v) => PT + ih - (v - lo) / (hi - lo) * ih;
+
+      // 渐变填充
+      const grad = g.createLinearGradient(0, PT, 0, PT + ih);
+      grad.addColorStop(0, cfg.fill);
+      grad.addColorStop(1, 'rgba(0,0,0,0)');
+      g.beginPath();
+      g.moveTo(px(0), PT + ih);
+      for (let i = 0; i < n; i++) g.lineTo(px(i), py(arr[i]));
+      g.lineTo(px(n - 1), PT + ih);
+      g.closePath();
+      g.fillStyle = grad; g.fill();
+
+      // 折线
+      g.beginPath();
+      for (let i = 0; i < n; i++) {
+        const x = px(i), y = py(arr[i]);
+        i === 0 ? g.moveTo(x, y) : g.lineTo(x, y);
+      }
+      g.strokeStyle = cfg.color;
+      g.lineWidth = 2;
+      g.lineJoin = 'round';
+      g.lineCap = 'round';
+      g.stroke();
+
+      // 末端点
+      const lx = px(n - 1), ly = py(arr[n - 1]);
+      g.beginPath(); g.arc(lx, ly, 3.2, 0, Math.PI * 2);
+      g.fillStyle = cfg.color; g.fill();
+      g.beginPath(); g.arc(lx, ly, 6.5, 0, Math.PI * 2);
+      g.fillStyle = cfg.glow; g.fill();
+    });
+  }
+
+  return {
+    push(...vals) {
+      vals.forEach((v, i) => {
+        const arr = data[i];
+        arr.push(v === null || v === undefined || isNaN(v) ? null : Number(v));
+        if (arr.length > MAX) arr.shift();
+      });
+      draw();
+    },
+    redraw: draw
+  };
+}
+
+const chartTemp = makeChart($('chTemp'), [
+  { color: '#22d3ee', fill: 'rgba(34,211,238,.22)', glow: 'rgba(34,211,238,.18)' },
+  { color: '#3b82f6', fill: 'rgba(59,130,246,.18)', glow: 'rgba(59,130,246,.16)' }
+]);
+const chartLux = makeChart($('chLux'), [
+  { color: '#fbbf24', fill: 'rgba(251,191,36,.22)', glow: 'rgba(251,191,36,.18)' }
+]);
+const chartStep = makeChart($('chStep'), [
+  { color: '#34d399', fill: 'rgba(52,211,153,.22)', glow: 'rgba(52,211,153,.18)' }
+]);
+const chartHealth = makeChart($('chHealth'), [
+  { color: '#fb7185', fill: 'rgba(251,113,133,.20)', glow: 'rgba(251,113,133,.16)' },
+  { color: '#a78bfa', fill: 'rgba(167,139,250,.16)', glow: 'rgba(167,139,250,.14)' }
+]);
+window.addEventListener('resize', () => {
+  chartTemp.redraw(); chartLux.redraw(); chartStep.redraw(); chartHealth.redraw();
+});
+
+/* ======================= 交互 ======================= */
+$('btnConnect').onclick = () => connect(false);
+$('btnScanAll').onclick = () => connect(true);
+
+$('btnDisconnect').onclick = () => {
+  if (device && device.gatt.connected) device.gatt.disconnect();
+  if (demoMode) stopDemo();
+};
+
+document.querySelectorAll('.sc').forEach(el => {
+  el.onclick = () => {
+    const id = el.dataset.scr;
+    if (demoMode) { highlightScreen(Number(id)); return; }
+    send('screen:' + id);
+  };
+});
+
+document.querySelectorAll('#scrBtns .btn[data-scr]').forEach(b => {
+  b.onclick = () => {
+    const id = b.dataset.scr;
+    if (demoMode) { highlightScreen(Number(id)); return; }
+    send('screen:' + id);
+  };
+});
+
+$('btnNext').onclick = () => {
+  const cur = (lastFrame && lastFrame.sys && lastFrame.sys.scr) || 1;
+  const next = cur >= 5 ? 1 : cur + 1;
+  if (demoMode) highlightScreen(next); else send('screen:' + next);
+};
+
+$('btnKeyL').onclick = () => demoMode ? demoPressKey(1) : send('key:left');
+$('btnKeyR').onclick = () => demoMode ? demoPressKey(2) : send('key:right');
+$('btnHaode').onclick = () => demoMode ? log('演示模式：模拟播放「好的」', 'tx') : send('audio:haode');
+$('btnWozai').onclick = () => demoMode ? log('演示模式：模拟播放「我在」', 'tx') : send('audio:wozai');
+$('btnSync').onclick = () => demoMode ? log('演示模式：无需同步', 'tx') : send('sync');
+
+$('btnClearLog').onclick = () => { $('log').innerHTML = ''; };
+$('btnExport').onclick = () => {
+  if (!history.length) { log('暂无历史数据可导出', 'err'); return; }
+  const head = '时间,温度(°C),湿度(%),气压(hPa),海拔(m),光照(lx),步数,距离(km),心率(bpm),血氧(%),电量(%),当前界面';
+  const rows = history.map(r => r.map(v => v === null || v === undefined ? '' : v).join(','));
+  const blob = new Blob(['\ufeff' + head + '\n' + rows.join('\n')], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'SmartWitch_' + new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-') + '.csv';
+  a.click();
+  URL.revokeObjectURL(a.href);
+  log('已导出 ' + history.length + ' 条记录', 'ev');
+};
+
+/* ======================= 演示模式 ======================= */
+function startDemo() {
+  demoMode = true;
+  setPill('demo', '演示模式');
+  $('btnDemo').textContent = '退出演示';
+  $('btnConnect').disabled = true;
+  $('btnDisconnect').disabled = false;
+  log('已进入演示模式（数据为模拟值）', 'ev');
+
+  let t = 24.2, h = 54, lux = 320, step = 1180, dist = 1.02;
+  let scr = 2, voice = 0;
+
+  demoTimer = setInterval(() => {
+    const now = new Date();
+    t += (Math.random() - 0.5) * 0.35;
+    h += (Math.random() - 0.5) * 1.4;
+    h = Math.max(28, Math.min(88, h));
+    lux += (Math.random() - 0.45) * 60;
+    lux = Math.max(3, Math.min(48000, lux));
+    if (Math.random() < 0.30) { step += Math.floor(Math.random() * 3) + 1; dist = step * 0.72 / 1000; }
+    if (Math.random() < 0.10) voice = voice === 0 ? 1 : 0;
+
+    const lightTxt = lux <= 50 ? '环境昏暗，请及时提高亮度'
+      : lux <= 300 ? '室内舒适光，适合阅读'
+      : lux <= 1000 ? '环境明亮'
+      : lux <= 10000 ? '室外自然光，注意防晒' : '强光环境，注意护眼';
+
+    render({
+      ts: Date.now(),
+      evt: voice === 1 ? 'voice:1' : '',
+      env: { t: t, h: h, p: 1008.4 + (Math.random() - .5), alt: 142.6, lux: lux, light: lightTxt },
+      wx: { now: 18, min: 12, max: 21, text: '晴', sug: '天气晴好，适宜户外活动哦~' },
+      main: {
+        pwr: 86, step: step, cal: Math.round(dist * 62),
+        date: `${now.getFullYear()}年${String(now.getMonth() + 1).padStart(2, '0')}月${String(now.getDate()).padStart(2, '0')}日 周${'日一二三四五六'[now.getDay()]}`,
+        time: `${String(now.getHours()).padStart(2, '0')}\n${String(now.getMinutes()).padStart(2, '0')}`,
+        sec: String(now.getSeconds()).padStart(2, '0')
+      },
+      hd: {
+        hr: 74 + Math.round(Math.random() * 6),
+        spo2: 96 + Math.round(Math.random() * 2),
+        st: 3, ir: 86000, dc: 84000, ac: 1450,
+        irb: 2600, ire: 4680, on: 1
+      },
+      sp: { dist: dist, t: 12, pace: 4.63, cal: Math.round(dist * 62) },
+      sys: {
+        scr: scr, up: Math.floor(performance.now() / 1000), rssi: -58, wifi: 1,
+        key: 0, voice: voice, heard: voice ? '小度' : '', cmd: voice ? '打开运动界面' : '',
+        mtu: 517
+      }
+    });
+  }, 1000);
+}
+
+function stopDemo() {
+  demoMode = false;
+  clearInterval(demoTimer); demoTimer = null;
+  setPill('off', '未连接');
+  $('btnDemo').textContent = '演示模式';
+  $('btnConnect').disabled = false;
+  $('btnDisconnect').disabled = true;
+  log('已退出演示模式', 'ev');
+}
+
+function demoPressKey(k) {
+  const id = k === 1 ? 'keyL' : 'keyR';
+  $(id).classList.add('down');
+  log('演示模式：模拟' + (k === 1 ? '左' : '右') + '键按下', 'tx');
+  setTimeout(() => $(id).classList.remove('down'), 220);
+}
+
+$('btnDemo').onclick = () => demoMode ? stopDemo() : startDemo();
+
+/* 在地址栏加 ?demo=1 可跳过蓝牙直接进入演示模式，方便离线预览 */
+if (/[?&]demo=1(?:&|$)/.test(location.search)) startDemo();
+
+/* ======================= 启动 ======================= */
+(function init() {
+  log('面板已就绪 · 等待连接 SmartWitch', 'ev');
+
+  /* 通过 http(s) 打开（即由 relay/server.js 托管）时接入局域网中转，
+     实现多人 / 手机同步查看；用 file:// 打开时完全跳过。 */
+  const served = location.protocol === 'http:' || location.protocol === 'https:';
+  if (served) {
+    relayConnect();
+    log('由中转服务托管，正在建立数据通道…', 'ev');
+    if (!navigator.bluetooth) {
+      const n = $('notice');
+      if (n) {
+        n.classList.add('show');
+        const box = n.firstElementChild;
+        if (box) box.innerHTML =
+          '<b>正在接入局域网中转服务…</b><br />稍候若显示「跟随模式」，说明数据将由主机经局域网转发过来。';
+      }
+    }
+  }
+
+  if (!navigator.bluetooth) {
+    if (!served) {
+      $('notice').classList.add('show');
+      log('当前浏览器不支持 Web Bluetooth', 'err');
+    }
+  } else if (!window.isSecureContext) {
+    $('notice').classList.add('show');
+    log('非安全上下文，Web Bluetooth 可能被禁用', 'err');
+  } else {
+    navigator.bluetooth.getAvailability()
+      .then(ok => { if (!ok) { $('notice').classList.add('show'); log('蓝牙适配器不可用', 'err'); } })
+      .catch(() => {});
+  }
+})();
+</script>
+</body>
+</html>
